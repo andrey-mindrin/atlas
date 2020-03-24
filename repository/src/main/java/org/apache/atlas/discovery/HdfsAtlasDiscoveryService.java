@@ -10,11 +10,11 @@ import javax.inject.Inject;
 
 @Component
 public class HdfsAtlasDiscoveryService {
-    private EntityDiscoveryService entityDiscoveryService;
+    private AtlasDiscoveryService discoveryService;
 
     @Inject
-    public HdfsAtlasDiscoveryService(EntityDiscoveryService entityDiscoveryService) {
-        this.entityDiscoveryService = entityDiscoveryService;
+    public HdfsAtlasDiscoveryService(AtlasDiscoveryService discoveryService) {
+        this.discoveryService = discoveryService;
     }
 
     @GraphTransaction
@@ -27,6 +27,6 @@ public class HdfsAtlasDiscoveryService {
         parameters.setLimit(25);
         parameters.setOffset(0);
 
-        return entityDiscoveryService.searchWithParameters(parameters);
+        return discoveryService.searchWithParameters(parameters);
     }
 }
