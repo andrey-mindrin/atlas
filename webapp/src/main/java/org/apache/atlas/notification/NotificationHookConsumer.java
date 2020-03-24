@@ -511,7 +511,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                                                             AtlasClient.API_V1.CREATE_ENTITY.getNormalizedPath());
                                 }
 
-                                createOrUpdate(entities, false, context);
+                                createOrUpdate2(entities, false, context);
                             }
                             break;
 
@@ -532,7 +532,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                                 // There should only be one root entity
                                 entities.getEntities().get(0).setGuid(guid);
 
-                                createOrUpdate(entities, true, context);
+                                createOrUpdate2(entities, true, context);
                             }
                             break;
 
@@ -565,7 +565,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                                                             AtlasClientV2.API_V2.UPDATE_ENTITY.getNormalizedPath());
                                 }
 
-                                createOrUpdate(entities, false, context);
+                                createOrUpdate2(entities, false, context);
                             }
                             break;
 
@@ -579,7 +579,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                                                             AtlasClientV2.API_V2.CREATE_ENTITY.getNormalizedPath());
                                 }
 
-                                createOrUpdate(entities, false, context);
+                                createOrUpdate2(entities, false, context);
                             }
                             break;
 
@@ -608,7 +608,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                                                             AtlasClientV2.API_V2.UPDATE_ENTITY.getNormalizedPath());
                                 }
 
-                                createOrUpdate(entities, false, context);
+                                createOrUpdate2(entities, false, context);
                             }
                             break;
 
@@ -691,6 +691,17 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                     AuditFilter.audit(auditLog);
                 }
             }
+        }
+
+        private void createOrUpdate2(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
+            LOG.info("createOrUpdate2");
+            List<AtlasEntity> entitiesList = entities.getEntities();
+            entitiesList.forEach(entity -> {
+                if( entity.getAttribute("description").equals("atlas-appender\n") ) {
+                    LOG.info("atlas-appender entity {}", entity.toString());
+                }
+            });
+            createOrUpdate(entities, isPartialUpdate, context);
         }
 
         private void createOrUpdate(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
