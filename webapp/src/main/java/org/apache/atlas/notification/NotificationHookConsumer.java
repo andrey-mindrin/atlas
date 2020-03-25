@@ -706,7 +706,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
 
             for (Iterator<AtlasEntity> atlasEntityIterator =entitiesList.iterator();atlasEntityIterator.hasNext(); ) {
                 AtlasEntity entity = atlasEntityIterator.next();
-                if (entity.getAttribute("description").equals("atlas-appender") && entity.getTypeName().equals("fs_path")) {
+                if (entity.getAttribute("description")!=null &&
+                    entity.getAttribute("description").equals("atlas-appender") &&
+                    entity.getTypeName().equals("fs_path")) {
                     LOG.info("atlas-appender entity {}", entity.toString());
                     String hdfsPath = (String)entity.getAttribute("path");
                     AtlasSearchResult atlasSearchResult = null;
