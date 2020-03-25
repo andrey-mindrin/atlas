@@ -19,6 +19,21 @@ package org.apache.atlas.notification;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
+import javax.inject.Inject;
 import kafka.utils.ShutdownableThread;
 import org.apache.atlas.ApplicationProperties;
 import org.apache.atlas.AtlasClient;
@@ -27,31 +42,27 @@ import org.apache.atlas.AtlasConfiguration;
 import org.apache.atlas.AtlasException;
 import org.apache.atlas.AtlasServiceException;
 import org.apache.atlas.RequestContext;
+import org.apache.atlas.discovery.HdfsAtlasDiscoveryService;
 import org.apache.atlas.exception.AtlasBaseException;
 import org.apache.atlas.ha.HAConfiguration;
 import org.apache.atlas.kafka.AtlasKafkaMessage;
 import org.apache.atlas.listener.ActiveStateChangeHandler;
+import org.apache.atlas.model.discovery.AtlasSearchResult;
 import org.apache.atlas.model.instance.AtlasEntity;
-import org.apache.atlas.model.instance.AtlasEntity.AtlasEntityWithExtInfo;
 import org.apache.atlas.model.instance.AtlasEntity.AtlasEntitiesWithExtInfo;
+import org.apache.atlas.model.instance.AtlasEntity.AtlasEntityWithExtInfo;
 import org.apache.atlas.model.instance.AtlasEntityHeader;
 import org.apache.atlas.model.instance.AtlasObjectId;
 import org.apache.atlas.model.instance.EntityMutationResponse;
 import org.apache.atlas.model.notification.HookNotification;
 import org.apache.atlas.model.notification.HookNotification.EntityCreateRequestV2;
 import org.apache.atlas.model.notification.HookNotification.EntityDeleteRequestV2;
-import org.apache.atlas.model.notification.HookNotification.EntityUpdateRequestV2;
 import org.apache.atlas.model.notification.HookNotification.EntityPartialUpdateRequestV2;
+import org.apache.atlas.model.notification.HookNotification.EntityUpdateRequestV2;
 import org.apache.atlas.notification.NotificationInterface.NotificationType;
 import org.apache.atlas.notification.preprocessor.EntityPreprocessor;
 import org.apache.atlas.notification.preprocessor.PreprocessorContext;
 import org.apache.atlas.notification.preprocessor.PreprocessorContext.PreprocessAction;
-import org.apache.atlas.utils.LruCache;
-import org.apache.atlas.v1.model.instance.Referenceable;
-import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityCreateRequest;
-import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityDeleteRequest;
-import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityPartialUpdateRequest;
-import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityUpdateRequest;
 import org.apache.atlas.repository.converters.AtlasInstanceConverter;
 import org.apache.atlas.repository.store.graph.AtlasEntityStore;
 import org.apache.atlas.repository.store.graph.v2.AtlasEntityStream;
@@ -61,6 +72,12 @@ import org.apache.atlas.type.AtlasEntityType;
 import org.apache.atlas.type.AtlasStructType.AtlasAttribute;
 import org.apache.atlas.type.AtlasTypeRegistry;
 import org.apache.atlas.utils.AtlasPerfTracer;
+import org.apache.atlas.utils.LruCache;
+import org.apache.atlas.v1.model.instance.Referenceable;
+import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityCreateRequest;
+import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityDeleteRequest;
+import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityPartialUpdateRequest;
+import org.apache.atlas.v1.model.notification.HookNotificationV1.EntityUpdateRequest;
 import org.apache.atlas.web.filters.AuditFilter;
 import org.apache.atlas.web.filters.AuditFilter.AuditLog;
 import org.apache.atlas.web.service.ServiceState;
@@ -75,22 +92,9 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
-
-import static org.apache.atlas.model.instance.AtlasObjectId.*;
+import static org.apache.atlas.model.instance.AtlasObjectId.KEY_GUID;
+import static org.apache.atlas.model.instance.AtlasObjectId.KEY_TYPENAME;
+import static org.apache.atlas.model.instance.AtlasObjectId.KEY_UNIQUE_ATTRIBUTES;
 import static org.apache.atlas.notification.preprocessor.EntityPreprocessor.TYPE_HIVE_PROCESS;
 
 
@@ -158,6 +162,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private NotificationInterface notificationInterface;
     private ExecutorService       executors;
     private Configuration         applicationProperties;
+    private HdfsAtlasDiscoveryService hdfsAtlasDiscoveryService;
 
     @VisibleForTesting
     final int consumerRetryInterval;
@@ -168,13 +173,14 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     @Inject
     public NotificationHookConsumer(NotificationInterface notificationInterface, AtlasEntityStore atlasEntityStore,
                                     ServiceState serviceState, AtlasInstanceConverter instanceConverter,
-                                    AtlasTypeRegistry typeRegistry) throws AtlasException {
+                                    AtlasTypeRegistry typeRegistry, HdfsAtlasDiscoveryService hdfsAtlasDiscoveryService) throws AtlasException {
         this.notificationInterface = notificationInterface;
         this.atlasEntityStore      = atlasEntityStore;
         this.serviceState          = serviceState;
         this.instanceConverter     = instanceConverter;
         this.typeRegistry          = typeRegistry;
         this.applicationProperties = ApplicationProperties.get();
+        this.hdfsAtlasDiscoveryService = hdfsAtlasDiscoveryService;
 
         maxRetries            = applicationProperties.getInt(CONSUMER_RETRIES_PROPERTY, 3);
         failedMsgCacheSize    = applicationProperties.getInt(CONSUMER_FAILEDCACHESIZE_PROPERTY, 1);
@@ -696,11 +702,29 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
         private void createOrUpdate2(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
             LOG.info("createOrUpdate2");
             List<AtlasEntity> entitiesList = entities.getEntities();
-            entitiesList.forEach(entity -> {
-                if( entity.getAttribute("description").equals("atlas-appender\n") ) {
+            List<AtlasEntity> newEntitiesList = new LinkedList<>();
+
+            for (Iterator<AtlasEntity> atlasEntityIterator =entitiesList.iterator();atlasEntityIterator.hasNext(); ) {
+                AtlasEntity entity = atlasEntityIterator.next();
+                if (entity.getAttribute("description").equals("atlas-appender") && entity.getTypeName().equals("fs_path")) {
                     LOG.info("atlas-appender entity {}", entity.toString());
+                    String hdfsPath = (String)entity.getAttribute("path");
+                    AtlasSearchResult atlasSearchResult = null;
+                    try {
+                        atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(hdfsPath);
+                    }
+                    catch (AtlasBaseException e) {
+                        e.printStackTrace();
+                    }
+                    if (atlasSearchResult!=null && !atlasSearchResult.getEntities().isEmpty()) {
+                        AtlasEntityHeader hiveAtlasEntityHeader= atlasSearchResult.getEntities().get(0);
+                        AtlasEntity hiveAtlasEntity = new AtlasEntity(hiveAtlasEntityHeader);
+                        entity = hiveAtlasEntity;
+                    }
                 }
-            });
+                newEntitiesList.add(entity);
+            }
+            entities.setEntities(newEntitiesList);
             createOrUpdate(entities, isPartialUpdate, context);
         }
 
