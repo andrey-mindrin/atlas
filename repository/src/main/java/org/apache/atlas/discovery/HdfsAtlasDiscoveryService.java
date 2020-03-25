@@ -26,6 +26,7 @@ public class HdfsAtlasDiscoveryService {
         parameters.setIncludeSubTypes(true);
         parameters.setLimit(25);
         parameters.setOffset(0);
+        parameters.setTypeName("hive_storagedesc");
 
         return discoveryService.searchWithParameters(parameters);
     }
