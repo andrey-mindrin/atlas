@@ -704,13 +704,15 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             List<AtlasEntity> entitiesList = entities.getEntities();
             List<AtlasEntity> newEntitiesList = new LinkedList<>();
 
-            for (Iterator<AtlasEntity> atlasEntityIterator =entitiesList.iterator();atlasEntityIterator.hasNext(); ) {
+            for (Iterator<AtlasEntity> atlasEntityIterator = entitiesList.iterator(); atlasEntityIterator.hasNext(); ) {
                 AtlasEntity entity = atlasEntityIterator.next();
-                if (entity.getAttribute("description")!=null &&
+                LOG.info("AtlasEntity :" + entity.toString());
+                if (entity.getAttribute("description") != null &&
                     entity.getAttribute("description").equals("atlas-appender") &&
                     entity.getTypeName().equals("fs_path")) {
                     LOG.info("atlas-appender entity {}", entity.toString());
                     String hdfsPath = (String)entity.getAttribute("path");
+                    LOG.info("hdfsPath :" + hdfsPath);
                     AtlasSearchResult atlasSearchResult = null;
                     try {
                         atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(hdfsPath);
@@ -718,8 +720,8 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                     catch (AtlasBaseException e) {
                         e.printStackTrace();
                     }
-                    if (atlasSearchResult!=null && !atlasSearchResult.getEntities().isEmpty()) {
-                        AtlasEntityHeader hiveAtlasEntityHeader= atlasSearchResult.getEntities().get(0);
+                    if (atlasSearchResult != null && !atlasSearchResult.getEntities().isEmpty()) {
+                        AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
                         AtlasEntity hiveAtlasEntity = new AtlasEntity(hiveAtlasEntityHeader);
                         entity = hiveAtlasEntity;
                     }
