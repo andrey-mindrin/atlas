@@ -17,17 +17,12 @@
  */
 package org.apache.atlas.notification;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -159,6 +154,8 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final boolean                       hiveTypesRemoveOwnedRefAttrs;
     private final boolean                       rdbmsTypesRemoveOwnedRefAttrs;
     private final boolean                       preprocessEnabled;
+    private final ObjectMapper                  mapper = new ObjectMapper();
+
 
     private NotificationInterface notificationInterface;
     private ExecutorService       executors;
@@ -701,6 +698,30 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             }
         }
 
+        private List<AtlasObjectId> hdfs2hive(List<AtlasObjectId> atlasObjects) throws AtlasBaseException {
+            List<AtlasObjectId> newAtasObjects = new LinkedList<>();
+            atlasObjects.forEach(atlasObject -> {
+                LOG.info("Processing :" + atlasObject);
+                String hdfsPath = (String)atlasObject.getUniqueAttributes().get("qualifiedName");
+                LOG.info("hdfsPath :" + hdfsPath);
+                AtlasSearchResult atlasSearchResult = null;
+                try {
+                    atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(hdfsPath);
+                }
+                catch (AtlasBaseException e) {
+                    e.printStackTrace();
+                }
+                if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
+                    AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
+                    LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
+                    atlasObject = new AtlasObjectId(hiveAtlasEntityHeader.getTypeName(), "qualifiedName", hiveAtlasEntityHeader.getAttribute("qualifiedName"));
+                    LOG.info("atlasObject: {}", atlasObject);
+                }
+                newAtasObjects.add(atlasObject);
+            });
+            return newAtasObjects;
+        }
+
         private void createOrUpdate2(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
             LOG.info("createOrUpdate2");
             List<AtlasEntity> entitiesList = entities.getEntities();
@@ -711,26 +732,13 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                 LOG.info("AtlasEntity :" + entity.toString());
                 if (entity.getAttribute("description") != null &&
                     entity.getAttribute("description").equals("atlas-appender") &&
-                    entity.getTypeName().equals("fs_path")) {
+                    entity.getTypeName().equals("spark_process")) {
                     LOG.info("atlas-appender entity {}", entity.toString());
-                    String hdfsPath = (String)entity.getAttribute("path");
-                    LOG.info("hdfsPath :" + hdfsPath);
-                    AtlasSearchResult atlasSearchResult = null;
-                    try {
-                        atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(hdfsPath);
-                    }
-                    catch (AtlasBaseException e) {
-                        e.printStackTrace();
-                    }
-                    if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
-                        AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
-                        LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
-                        AtlasEntityWithExtInfo atlasEntityWithExtInfo = atlasEntityStore.getById(hiveAtlasEntityHeader.getGuid());
-                        LOG.info("atlasEntityWithExtInfo: {}", atlasEntityWithExtInfo);
-                        AtlasEntity hiveAtlasEntity = atlasEntityWithExtInfo.getEntity();
-                        LOG.info("hiveAtlasEntity: {}", hiveAtlasEntity);
-                        entity = hiveAtlasEntity;
-                    }
+
+                    List<AtlasObjectId> atlasObjects = mapper.convertValue(entity.getAttribute("inputs"), new TypeReference<List<AtlasObjectId>>() { });
+                    if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("inputs", hdfs2hive(atlasObjects));
+                    atlasObjects = mapper.convertValue(entity.getAttribute("outputs"), new TypeReference<List<AtlasObjectId>>() { });
+                    if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("outputs", hdfs2hive(atlasObjects));
                 }
                 newEntitiesList.add(entity);
             }
