@@ -722,7 +722,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                     }
                     if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
                         AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
+                        LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
                         AtlasEntity hiveAtlasEntity = new AtlasEntity(hiveAtlasEntityHeader);
+                        LOG.info("hiveAtlasEntity: {}", hiveAtlasEntity);
                         entity = hiveAtlasEntity;
                     }
                 }

@@ -4,6 +4,7 @@ import org.apache.atlas.annotation.GraphTransaction;
 import org.apache.atlas.exception.AtlasBaseException;
 import org.apache.atlas.model.discovery.AtlasSearchResult;
 import org.apache.atlas.model.discovery.SearchParameters;
+import org.apache.lucene.queryparser.classic.QueryParser;
 import org.springframework.stereotype.Component;
 
 import javax.inject.Inject;
@@ -20,7 +21,7 @@ public class HdfsAtlasDiscoveryService {
     @GraphTransaction
     public AtlasSearchResult searchWithParameters(String query) throws AtlasBaseException {
         SearchParameters parameters = new SearchParameters();
-        parameters.setQuery(query);
+        parameters.setQuery(escapeQuery(query));
         parameters.setExcludeDeletedEntities(true);
         parameters.setIncludeSubClassifications(true);
         parameters.setIncludeSubTypes(true);
@@ -29,5 +30,8 @@ public class HdfsAtlasDiscoveryService {
         parameters.setTypeName("hive_storagedesc");
 
         return discoveryService.searchWithParameters(parameters);
+    }
+    private  String escapeQuery(String sourceQuery) {
+        return QueryParser.escape(sourceQuery);
     }
 }
