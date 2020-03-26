@@ -67,6 +67,7 @@ import org.apache.atlas.repository.converters.AtlasInstanceConverter;
 import org.apache.atlas.repository.store.graph.AtlasEntityStore;
 import org.apache.atlas.repository.store.graph.v2.AtlasEntityStream;
 import org.apache.atlas.repository.store.graph.v2.AtlasGraphUtilsV2;
+import org.apache.atlas.repository.store.graph.v2.EntityGraphRetriever;
 import org.apache.atlas.service.Service;
 import org.apache.atlas.type.AtlasEntityType;
 import org.apache.atlas.type.AtlasStructType.AtlasAttribute;
@@ -163,6 +164,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private ExecutorService       executors;
     private Configuration         applicationProperties;
     private HdfsAtlasDiscoveryService hdfsAtlasDiscoveryService;
+    private EntityGraphRetriever entityRetriever;
 
     @VisibleForTesting
     final int consumerRetryInterval;
@@ -723,7 +725,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                     if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
                         AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
                         LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
-                        AtlasEntity hiveAtlasEntity = new AtlasEntity(hiveAtlasEntityHeader);
+                        AtlasEntityWithExtInfo atlasEntityWithExtInfo = atlasEntityStore.getById(hiveAtlasEntityHeader.getGuid());
+                        LOG.info("atlasEntityWithExtInfo: {}", atlasEntityWithExtInfo);
+                        AtlasEntity hiveAtlasEntity = atlasEntityWithExtInfo.getEntity();
                         LOG.info("hiveAtlasEntity: {}", hiveAtlasEntity);
                         entity = hiveAtlasEntity;
                     }
