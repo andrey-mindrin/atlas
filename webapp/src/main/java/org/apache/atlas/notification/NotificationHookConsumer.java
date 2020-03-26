@@ -720,7 +720,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                     catch (AtlasBaseException e) {
                         e.printStackTrace();
                     }
-                    if (atlasSearchResult != null && !atlasSearchResult.getEntities().isEmpty()) {
+                    if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
                         AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
                         AtlasEntity hiveAtlasEntity = new AtlasEntity(hiveAtlasEntityHeader);
                         entity = hiveAtlasEntity;
