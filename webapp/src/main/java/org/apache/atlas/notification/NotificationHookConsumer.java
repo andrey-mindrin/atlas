@@ -705,8 +705,6 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                 LOG.info("Processing :" + atlasObject);
                 String path = (String)atlasObject.getUniqueAttributes().get("qualifiedName");
                 LOG.info("hdfs2hive path :" + path);
-//                if( !new File(path).isDirectory() ) path = path.substring(0, path.lastIndexOf("/"));;
-                LOG.info("hdfs2hive dirpath :" + path);
                 try {
                     AtlasSearchResult atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(path);
                     if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
