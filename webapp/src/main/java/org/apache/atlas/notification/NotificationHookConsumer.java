@@ -116,6 +116,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private static final String THREADNAME_PREFIX = NotificationHookConsumer.class.getSimpleName();
     private static final String ATLAS_HOOK_TOPIC  = AtlasConfiguration.NOTIFICATION_HOOK_TOPIC_NAME.getString();
 
+    public static final String CONSUMER_NUM_PATH_PARTS           = "atlas.notification.hook.numpathparts";
     public static final String CONSUMER_THREADS_PROPERTY         = "atlas.notification.hook.numthreads";
     public static final String CONSUMER_RETRIES_PROPERTY         = "atlas.notification.hook.maxretries";
     public static final String CONSUMER_FAILEDCACHESIZE_PROPERTY = "atlas.notification.hook.failedcachesize";
@@ -140,6 +141,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final ServiceState                  serviceState;
     private final AtlasInstanceConverter        instanceConverter;
     private final AtlasTypeRegistry             typeRegistry;
+    private final int numPathParts;
     private final int                           maxRetries;
     private final int                           failedMsgCacheSize;
     private final int                           minWaitDuration;
@@ -182,6 +184,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
         this.applicationProperties = ApplicationProperties.get();
         this.hdfsAtlasDiscoveryService = hdfsAtlasDiscoveryService;
 
+        numPathParts          = applicationProperties.getInt(CONSUMER_NUM_PATH_PARTS, 2);
         maxRetries            = applicationProperties.getInt(CONSUMER_RETRIES_PROPERTY, 3);
         failedMsgCacheSize    = applicationProperties.getInt(CONSUMER_FAILEDCACHESIZE_PROPERTY, 1);
         consumerRetryInterval = applicationProperties.getInt(CONSUMER_RETRY_INTERVAL, 500);
@@ -699,37 +702,63 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             }
         }
 
-        private List<AtlasObjectId> hdfs2hive(List<AtlasObjectId> atlasObjects) throws AtlasBaseException {
-            List<AtlasObjectId> newAtasObjects = new LinkedList<>();
-            atlasObjects.forEach(atlasObject -> {
-                LOG.info("Processing :" + atlasObject);
-                String path = (String)atlasObject.getUniqueAttributes().get("qualifiedName");
-                LOG.info("hdfs2hive path :" + path);
+        private AtlasObjectId hdfs2hive(String path) {
+            LOG.info("hdfs2hive path :" + path);
+            try {
+                AtlasSearchResult atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(path);
+                if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
+                    AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
+                    LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
+
+                    AtlasEntityWithExtInfo atlasEntityWithExtInfo = atlasEntityStore.getById(hiveAtlasEntityHeader.getGuid());
+                    LOG.info("atlasEntityWithExtInfo: {}", atlasEntityWithExtInfo);
+
+                    AtlasEntity hiveTableEntity = atlasEntityWithExtInfo.getEntity();
+                    LOG.info("hiveTableEntity: {}", hiveTableEntity);
+
+                    AtlasObjectId hiveTableObject = mapper.convertValue(hiveTableEntity.getAttribute("table"), new TypeReference<AtlasObjectId>() { });
+                    LOG.info("hiveTableObject: {}", hiveTableObject);
+
+                    AtlasObjectId atlasObject = new AtlasObjectId(hiveTableObject.getGuid(), hiveTableObject.getTypeName());
+                    LOG.info("atlasObject: {}", atlasObject);
+
+                    return atlasObject;
+                }
+            }
+            catch (AtlasBaseException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        private AtlasObjectId hdfs2hive(AtlasObjectId atlasObject) {
+            LOG.info("Processing :" + atlasObject);
+            String path = (String)atlasObject.getUniqueAttributes().get("qualifiedName");
+            String separator = File.separator;
+            if(!path.contains(separator)) {
+                if (separator.equals("\\")) separator = "/";
+                else separator="\\";
+            }
+            int cnt = numPathParts;
+            do {
+                atlasObject = hdfs2hive(path.substring(0, path.lastIndexOf(separator)));
                 try {
-                    AtlasSearchResult atlasSearchResult = hdfsAtlasDiscoveryService.searchWithParameters(path);
-                    if (atlasSearchResult != null && atlasSearchResult.getEntities()!=null && !atlasSearchResult.getEntities().isEmpty()) {
-                        AtlasEntityHeader hiveAtlasEntityHeader = atlasSearchResult.getEntities().get(0);
-                        LOG.info("hiveAtlasEntityHeader: {}", hiveAtlasEntityHeader);
-
-                        AtlasEntityWithExtInfo atlasEntityWithExtInfo = atlasEntityStore.getById(hiveAtlasEntityHeader.getGuid());
-                        LOG.info("atlasEntityWithExtInfo: {}", atlasEntityWithExtInfo);
-
-                        AtlasEntity hiveTableEntity = atlasEntityWithExtInfo.getEntity();
-                        LOG.info("hiveTableEntity: {}", hiveTableEntity);
-
-                        AtlasObjectId hiveTableObject = mapper.convertValue(hiveTableEntity.getAttribute("table"), new TypeReference<AtlasObjectId>() { });
-                        LOG.info("hiveTableObject: {}", hiveTableObject);
-
-                        atlasObject = new AtlasObjectId(hiveTableObject.getGuid(), hiveTableObject.getTypeName());
-                        LOG.info("atlasObject: {}", atlasObject);
-                    }
+                    path = path.substring(0, path.lastIndexOf(separator));
+                } catch (StringIndexOutOfBoundsException ex) {
+                    path = null;
                 }
-                catch (AtlasBaseException e) {
-                    e.printStackTrace();
-                }
-                newAtasObjects.add(atlasObject);
+                cnt--;
+            }
+            while( cnt>0 && atlasObject==null && path!=null );
+            return atlasObject;
+        }
+
+        private List<AtlasObjectId> hdfs2hive(List<AtlasObjectId> atlasObjects) {
+            List<AtlasObjectId> newAtlasObjects = new LinkedList<>();
+            atlasObjects.forEach(atlasObject -> {
+                newAtlasObjects.add(hdfs2hive(atlasObject));
             });
-            return newAtasObjects;
+            return newAtlasObjects;
         }
 
         private void createOrUpdate2(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
@@ -737,22 +766,26 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             List<AtlasEntity> newEntitiesList = new LinkedList<>();
             entitiesList.forEach(entity -> {
                 if (entity.getAttribute("description") != null &&
-                        entity.getAttribute("description").equals("atlas-appender") &&
-                        entity.getTypeName().equals("spark_process")) {
-                    try {
-                        List<AtlasObjectId> atlasObjects = mapper.convertValue(entity.getAttribute("inputs"), new TypeReference<List<AtlasObjectId>>() { });
-                        if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("inputs", hdfs2hive(atlasObjects));
-                        atlasObjects = mapper.convertValue(entity.getAttribute("outputs"), new TypeReference<List<AtlasObjectId>>() { });
-                        if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("outputs", hdfs2hive(atlasObjects));
+                        entity.getAttribute("description").equals("atlas-appender")) {
+                    switch(entity.getTypeName()) {
+                        case "spark_process":
+                            List<AtlasObjectId> atlasObjects = mapper.convertValue(entity.getAttribute("inputs"), new TypeReference<List<AtlasObjectId>>() { });
+                            if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("inputs", hdfs2hive(atlasObjects));
+                            atlasObjects = mapper.convertValue(entity.getAttribute("outputs"), new TypeReference<List<AtlasObjectId>>() { });
+                            if( atlasObjects!=null && !atlasObjects.isEmpty() ) entity.setAttribute("outputs", hdfs2hive(atlasObjects));
+                            newEntitiesList.add(entity);
+                            break;
+                        case "fs_path":
+                            if( hdfs2hive(new AtlasObjectId(entity.getTypeName(), "qualifiedName", entity.getAttribute("qualifiedName")))==null )
+                                newEntitiesList.add(entity);
+                            break;
                     }
-                    catch (AtlasBaseException e) {
-                        e.printStackTrace();
-                    }
-                }
-                newEntitiesList.add(entity);
+                } else newEntitiesList.add(entity);
             });
-            entities.setEntities(newEntitiesList);
-            createOrUpdate(entities, isPartialUpdate, context);
+            if (!newEntitiesList.isEmpty()) {
+                entities.setEntities(newEntitiesList);
+                createOrUpdate(entities, isPartialUpdate, context);
+            }
         }
 
         private void createOrUpdate(AtlasEntitiesWithExtInfo entities, boolean isPartialUpdate, PreprocessorContext context) throws AtlasBaseException {
