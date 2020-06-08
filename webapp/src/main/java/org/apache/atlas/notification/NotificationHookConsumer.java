@@ -741,7 +741,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             }
             int cnt = numPathParts;
             do {
-                atlasObject = hdfs2hive(path.substring(0, path.lastIndexOf(separator)));
+                atlasObject = hdfs2hive(path);
                 try {
                     path = path.substring(0, path.lastIndexOf(separator));
                 } catch (StringIndexOutOfBoundsException ex) {
@@ -756,7 +756,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
         private List<AtlasObjectId> hdfs2hive(List<AtlasObjectId> atlasObjects) {
             List<AtlasObjectId> newAtlasObjects = new LinkedList<>();
             atlasObjects.forEach(atlasObject -> {
-                newAtlasObjects.add(hdfs2hive(atlasObject));
+                AtlasObjectId hiveObject = hdfs2hive(atlasObject);
+                if( hiveObject==null ) hiveObject = atlasObject;
+                newAtlasObjects.add(hiveObject);
             });
             return newAtlasObjects;
         }
